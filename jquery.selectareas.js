@@ -3,22 +3,36 @@
  * @author 360Learning
  * @author Catalin Dogaru (https://github.com/cdog - http://code.tutsplus.com/tutorials/how-to-create-a-jquery-image-cropping-plugin-from-scratch-part-i--net-20994)
  * @author Adrien David-Sivelle (https://github.com/AdrienDS - Refactoring, Multiselections & Mobile compatibility)
+ * @author Amr Almgwary (https://github.com/almgwary - RelativeRatio fix, focus from outside & add text to area & add blur and focus color)
  */
 (function($) {
+
+  console.log('selectAreas init');
+
     $.imageArea = function(parent, id) {
         var options = parent.options,
             $image = parent.$image,
             $trigger = parent.$trigger,
+            $areaElement,
+            // used for background gif animated borders
             $outline,
+            // used to show selected part from the original image
             $selection,
+            // resize points
             $resizeHandlers = {},
+            // delete button,
             $btDelete,
+            // text
+            $textElement,
             resizeHorizontally = true,
             resizeVertically = true,
             selectionOffset = [0, 0],
             selectionOrigin = [0, 0],
             area = {
                 id: id,
+                customId:id,
+                text:"",
+                color:"",
                 x: 0,
                 y: 0,
                 z: 0,
@@ -26,13 +40,27 @@
                 width: 0
             },
             blur = function () {
+                // console.log('area.blur', area.id);
                 area.z = 0;
+                // remove active class to this area
+                $areaElement.removeClass('active');
                 refresh("blur");
+                // call back function for onAreaBlur
+                parent.options.onAreaBlur(area);
+
             },
             focus = function () {
-                parent.blurAll();
+                // console.log('area.focus', area.id);
+                // parent.blurAll();
+                parent.blurOthers(area.id);
+                // add active class to this area
+                $areaElement.addClass('active');
+
                 area.z = 100;
                 refresh();
+                // call back function for onAreaFocus
+                parent.options.onAreaFocus(area);
+
             },
             getData = function () {
                 return area;
@@ -89,12 +117,12 @@
 
                 // Update the selection layer
                 $selection.css({
-                    backgroundPosition : ( - area.x - 1) + "px " + ( - area.y - 1) + "px",
+                    backgroundPosition : ( - area.x - 2) + "px " + ( - area.y - 2) + "px",
                     cursor : options.allowMove ? "move" : "default",
-                    width: (area.width - 2 > 0) ? (area.width - 2) : 0,
-                    height: (area.height - 2 > 0) ? (area.height - 2) : 0,
-                    left : area.x + 1,
-                    top : area.y + 1,
+                    width: (area.width - 4 > 0) ? (area.width - 4) : 0,
+                    height: (area.height - 4 > 0) ? (area.height - 4) : 0,
+                    left : area.x + 2,
+                    top : area.y + 2,
                     "z-index": area.z + 2
                 });
             },
@@ -163,11 +191,24 @@
                     cursor: cursorType
                 });
             },
+            updateAreaText = function () {
+              $textElement.text(area.text);
+              // Update the outline layer
+              $textElement.css({
+                cursor: "pointer",
+                width: area.width,
+                height: area.height,
+                left: area.x,
+                top: area.y,
+                "z-index": area.z + 3
+              });
+            },
             refresh = function(sender) {
                 switch (sender) {
                     case "startSelection":
                         parent._refresh();
                         updateSelection();
+                        updateAreaText();
                         updateResizeHandlers();
                         updateBtDelete(true);
                         break;
@@ -179,6 +220,7 @@
 
                     case "resizeSelection":
                         updateSelection();
+                        updateAreaText();
                         updateResizeHandlers();
                         updateCursor("crosshair");
                         updateBtDelete(true);
@@ -186,6 +228,7 @@
 
                     case "moveSelection":
                         updateSelection();
+                        updateAreaText();
                         updateResizeHandlers();
                         updateCursor("move");
                         updateBtDelete(true);
@@ -193,6 +236,7 @@
 
                     case "blur":
                         updateSelection();
+                        updateAreaText();
                         updateResizeHandlers();
                         updateBtDelete();
                         break;
@@ -202,6 +246,7 @@
                         updateSelection();
                         updateResizeHandlers(true);
                         updateBtDelete(true);
+                        updateAreaText();
                 }
             },
             startSelection  = function (event) {
@@ -418,15 +463,20 @@
                 refresh("releaseSelection");
             },
             deleteSelection = function (event) {
+                console.log('area.deleteselection',area.id);
                 cancelEvent(event);
                 $selection.remove();
                 $outline.remove();
+                $areaElement.remove();
+                if(area.text){
+                  $textElement.remove();
+                }
                 $.each($resizeHandlers, function(card, $handler) {
                     $handler.remove();
                 });
                 if ($btDelete) {
-                    $btDelete.remove();    
-                } 
+                    $btDelete.remove();
+                }
                 parent._remove(id);
                 fireEvent("changed");
             },
@@ -461,15 +511,21 @@
             };
 
 
+        // parent area which contain every thing about this area
+        $areaElement = $("<span id='area-"+ area.customId +"' />")
+          .insertAfter($trigger);
+
         // Initialize an outline layer and place it above the trigger layer
+        // used for background gif animated borders
         $outline = $("<div class=\"select-areas-outline\" />")
             .css({
                 opacity : options.outlineOpacity,
                 position : "absolute"
             })
-            .insertAfter($trigger);
+            .appendTo($areaElement);
 
         // Initialize a selection layer and place it above the outline layer
+        // used to show selected part from the original image
         $selection = $("<div />")
             .addClass("select-areas-background-area")
             .css({
@@ -478,6 +534,16 @@
                 position : "absolute"
             })
             .insertAfter($outline);
+
+
+        $textElement = $("<span />")
+          .text(area.text)
+          .addClass("area-text")
+          .css({
+            backgroundSize : $image.width() + "px " + $image.height() + "px",
+          })
+          .insertAfter($outline);
+
 
         // Initialize all handlers
         if (options.allowResize) {
@@ -507,13 +573,16 @@
         }
 
         if (options.allowMove) {
-            $selection.mousedown(pickSelection).bind("touchstart", pickSelection);
+            //$selection.mousedown(pickSelection).bind("touchstart", pickSelection);
+            $areaElement.mousedown(pickSelection).bind("touchstart", pickSelection);
+
         }
 
         focus();
 
         return {
             getData: getData,
+            refresh: refresh,
             startSelection: startSelection,
             deleteSelection: deleteSelection,
             options: options,
@@ -569,9 +638,11 @@
                 maxSize: [0, 0],
                 width: 0,
                 maxAreas: 0,
-                outlineOpacity: 0.5,
-                overlayOpacity: 0.5,
+                outlineOpacity: 1,
+                overlayOpacity: 0.3,
                 areas: [],
+                onAreaFocus: null,
+                onAreaBlur: null,
                 onChanging: null,
                 onChanged: null
             };
@@ -593,6 +664,12 @@
             this.$image.width(this.options.width);
         }
 
+        if (this.options.onAreaFocus) {
+            this.$image.on("onAreaFocus", this.options.onAreaFocus);
+        }
+        if (this.options.onAreaBlur) {
+            this.$image.on("onAreaBlur", this.options.onAreaBlur);
+        }
         if (this.options.onChanging) {
             this.$image.on("changing", this.options.onChanging);
         }
@@ -628,7 +705,7 @@
             .insertAfter(this.$image);
 
         // Initialize a trigger layer and place it above the overlay layer
-        this.$trigger = $("<div />")
+        this.$trigger = $("<div class='parent-trigger-layer'/>")
             .css({
                 backgroundColor : "#000000",
                 opacity : 0,
@@ -647,9 +724,14 @@
         this._refresh();
 
         if (this.options.allowSelect) {
-            // Bind an event handler to the "mousedown" event of the trigger layer
+          console.log('allow select');
+
+          // Bind an event handler to the "mousedown" event of the trigger layer
             this.$trigger.mousedown($.proxy(this.newArea, this)).on("touchstart", $.proxy(this.newArea, this));
+        }else{
+            console.log('not allow select');
         }
+
         if (this.options.allowNudge) {
             $('html').keydown(function (e) { // move selection with arrow keys
                 var codes = {
@@ -693,6 +775,67 @@
         });
     };
 
+  $.imageSelectAreas.prototype.focusAreaByCustomId = function(areaCustomId){
+    // check valid areaCustomId
+    if(!areaCustomId  || areaCustomId.length < 1 ){
+      console.error('Cannot renderArea, areaCustomId must be provided');
+      return ;
+    }
+    // check if there is area with areaCustomId
+    var _area = this.findAreaByAreaCustomId(areaCustomId);
+    if(!_area){
+      console.error('Cannot renderArea, no area found with this areaCustomId ');
+      return ;
+    }
+
+     _area.focus();
+
+  }
+
+
+  $.imageSelectAreas.prototype.renderArea = function(areaCustomId,areaData){
+    // check valid areaCustomId
+    if(!areaCustomId  || areaCustomId.length < 1 ){
+      console.error('Cannot renderArea, areaCustomId must be provided');
+      return ;
+    }
+    // check if there is area with areaCustomId
+    var _area = this.findAreaByAreaCustomId(areaCustomId);
+    if(!_area){
+      console.error('Cannot renderArea, no area found with this areaCustomId ');
+      return ;
+    }
+
+    // id data sent add it
+    if(areaData){
+      _area.set(areaData);
+    }
+    // refesh area
+    _area.refresh();
+
+  }
+
+    // find area by areaCustomId and return areaObject or return null
+    $.imageSelectAreas.prototype.findAreaByAreaCustomId = function(areaCustomId){
+      // check valid areaCustomId
+      if(!areaCustomId  || areaCustomId.length < 1 ){
+        console.error('Cannot findAreaByAreaCustomId, areaCustomId must be provided');
+        return ;
+      }
+
+      var areasCount = this.areas().length ;
+      for(var i = 0 ;  i < areasCount; ++i){
+        var areaObject = this._areas[i] ;
+        var areaData = areaObject.getData() ;
+        if(areaData.customId == areaCustomId){
+          return areaObject ;
+        }
+      }
+
+      // not found
+      return null
+    };
+
     $.imageSelectAreas.prototype._eachArea = function (cb) {
         $.each(this._areas, function (id, area) {
             if (area) {
@@ -712,6 +855,12 @@
         }
     };
 
+  /**
+   * create id = last id + 1
+   * blur all areas
+   * @param event
+   * @returns {number}
+   */
     $.imageSelectAreas.prototype.newArea = function (event) {
         var id = -1;
         this.blurAll();
@@ -731,6 +880,7 @@
     };
 
     $.imageSelectAreas.prototype.set = function (id, options, silent) {
+        console.log('areas set area',id);
         if (this._areas[id]) {
             options.id = id;
             this._areas[id].set(options, silent);
@@ -739,6 +889,7 @@
     };
 
     $.imageSelectAreas.prototype._add = function (options, silent) {
+        // get id in sequence
         var id = this.newArea();
         this.set(id, options, silent);
     };
@@ -790,7 +941,7 @@
             ret = [],
             ratio = this.ratio,
             scale = function (val) {
-                return Math.floor(val / ratio);
+                return Math.floor(val * ratio);
             };
 
         for (var i = 0; i < areas.length; i++) {
@@ -803,11 +954,19 @@
         return ret;
     };
 
-    $.imageSelectAreas.prototype.blurAll = function () {
-        this._eachArea(function (area) {
-            area.blur();
-        });
-    };
+  $.imageSelectAreas.prototype.blurAll = function () {
+    this._eachArea(function (area) {
+      area.blur();
+    });
+  };
+
+  $.imageSelectAreas.prototype.blurOthers = function (areaId) {
+    this._eachArea(function (area) {
+      if(area.getData().id != areaId){
+        area.blur();
+      }
+    });
+  };
 
     $.imageSelectAreas.prototype.contains  = function (point) {
         var res = false;
@@ -821,7 +980,8 @@
     };
 
     $.selectAreas = function(object, options) {
-        var $object = $(object);
+      console.log('$.selectAreas',object, options);
+      var $object = $(object);
         if (! $object.data("mainImageSelectAreas")) {
             var mainImageSelectAreas = new $.imageSelectAreas();
             mainImageSelectAreas.init(object, options);
@@ -833,6 +993,7 @@
 
 
     $.fn.selectAreas = function(customOptions) {
+        console.log('$.fn.selectAreas',customOptions);
         if ( $.imageSelectAreas.prototype[customOptions] ) { // Method call
             var ret = $.imageSelectAreas.prototype[ customOptions ].apply( $.selectAreas(this), Array.prototype.slice.call( arguments, 1 ));
             return typeof ret === "undefined" ? this : ret;
@@ -858,4 +1019,5 @@
             $.error( "Method " +  customOptions + " does not exist on jQuery.selectAreas" );
         }
     };
+
 }) (jQuery);
